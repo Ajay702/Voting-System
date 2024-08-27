@@ -1,117 +1,95 @@
-import {useState, useEffect} from "react";
-import {ethers} from "ethers";
-import atm_abi from "../artifacts/contracts/Assessment.sol/Assessment.json";
+import { useState, useEffect } from "react";
+import { ethers } from "ethers";
+import voting_abi from "../artifacts/contracts/Voting.sol/Voting.json";
 
-export default function HomePage() {
+export default function VotingPage() {
   const [ethWallet, setEthWallet] = useState(undefined);
   const [account, setAccount] = useState(undefined);
-  const [atm, setATM] = useState(undefined);
-  const [balance, setBalance] = useState(undefined);
+  const [votingContract, setVotingContract] = useState(undefined);
+  const [candidates, setCandidates] = useState([]);
+  const [hasVoted, setHasVoted] = useState(false);
 
-  const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
-  const atmABI = atm_abi.abi;
+  const contractAddress = "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e";
+  const votingABI = voting_abi.abi;
 
-  const getWallet = async() => {
-    if (window.ethereum) {
-      setEthWallet(window.ethereum);
-    }
+  const getWallet = async () => {
+    try {
+      if (window.ethereum) {
+        setEthWallet(window.ethereum);
+      }
 
-    if (ethWallet) {
-      const account = await ethWallet.request({method: "eth_accounts"});
-      handleAccount(account);
+      if (ethWallet) {
+        const accounts = await ethWallet.request({ method: "eth_accounts" });
+        handleAccount(accounts);
+      }
+    } catch (error) {
+      console.error("Error getting wallet:", error);
     }
-  }
-
-  const handleAccount = (account) => {
-    if (account) {
-      console.log ("Account connected: ", account);
-      setAccount(account);
-    }
-    else {
-      console.log("No account found");
-    }
-  }
-
-  const connectAccount = async() => {
-    if (!ethWallet) {
-      alert('MetaMask wallet is required to connect');
-      return;
-    }
-  
-    const accounts = await ethWallet.request({ method: 'eth_requestAccounts' });
-    handleAccount(accounts);
-    
-    // once wallet is set we can get a reference to our deployed contract
-    getATMContract();
   };
 
-  const getATMContract = () => {
-    const provider = new ethers.providers.Web3Provider(ethWallet);
-    const signer = provider.getSigner();
-    const atmContract = new ethers.Contract(contractAddress, atmABI, signer);
- 
-    setATM(atmContract);
-  }
-
-  const getBalance = async() => {
-    if (atm) {
-      setBalance((await atm.getBalance()).toNumber());
+  const handleAccount = async (accounts) => {
+    if (accounts.length > 0) {
+      setAccount(accounts[0]);
+      await getVotingContract();
+    } else {
+      console.log("No accounts found");
     }
-  }
+  };
 
-  const deposit = async() => {
-    if (atm) {
-      let tx = await atm.deposit(1);
-      await tx.wait()
-      getBalance();
+  const getVotingContract = async () => {
+    try {
+      const provider = new ethers.providers.Web3Provider(ethWallet);
+      const signer = provider.getSigner();
+      const contract = new ethers.Contract(contractAddress, votingABI, signer);
+      setVotingContract(contract);
+      await getCandidates(contract);
+    } catch (error) {
+      console.error("Error getting contract:", error);
     }
-  }
+  };
 
-  const withdraw = async() => {
-    if (atm) {
-      let tx = await atm.withdraw(1);
-      await tx.wait()
-      getBalance();
+  const getCandidates = async (contract) => {
+    try {
+      const candidatesCount = await contract.candidatesCount();
+      const candidatesArray = [];
+      for (let i = 1; i <= candidatesCount; i++) {
+        const candidate = await contract.candidates(i);
+        candidatesArray.push({ id: i, name: candidate.name, voteCount: candidate.voteCount.toNumber() });
+      }
+      setCandidates(candidatesArray);
+    } catch (error) {
+      console.error("Error getting candidates:", error);
     }
-  }
+  };
 
-  const initUser = () => {
-    // Check to see if user has Metamask
-    if (!ethWallet) {
-      return <p>Please install Metamask in order to use this ATM.</p>
+  const vote = async (candidateId) => {
+    try {
+      const tx = await votingContract.vote(candidateId);
+      await tx.wait();
+      setHasVoted(true);
+      await getCandidates(votingContract); 
+    } catch (error) {
+      console.error("Error voting:", error);
     }
+  };
 
-    // Check to see if user is connected. If not, connect to their account
-    if (!account) {
-      return <button onClick={connectAccount}>Please connect your Metamask wallet</button>
-    }
-
-    if (balance == undefined) {
-      getBalance();
-    }
-
-    return (
-      <div>
-        <p>Your Account: {account}</p>
-        <p>Your Balance: {balance}</p>
-        <button onClick={deposit}>Deposit 1 ETH</button>
-        <button onClick={withdraw}>Withdraw 1 ETH</button>
-      </div>
-    )
-  }
-
-  useEffect(() => {getWallet();}, []);
+  useEffect(() => {
+    getWallet();
+  }, [ethWallet]);
 
   return (
-    <main className="container">
-      <header><h1>Welcome to the Metacrafters ATM!</h1></header>
-      {initUser()}
-      <style jsx>{`
-        .container {
-          text-align: center
-        }
-      `}
-      </style>
-    </main>
-  )
+    <div>
+      <h1>Welcome to the Voting Machine!</h1>
+      <p>Your Account: {account}</p>
+      <p>Has Voted: {hasVoted ? "Yes" : "No"}</p>
+      <ul>
+        {candidates.map((candidate) => (
+          <li key={candidate.id}>
+            {candidate.name} - {candidate.voteCount} votes
+            {!hasVoted && <button onClick={() => vote(candidate.id)}>Vote</button>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
